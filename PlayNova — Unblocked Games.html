@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en" x-data="gameApp()" x-init="init()" :class="{ 'dark': isDarkMode }">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlayNova — Unblocked Games</title>
+  <meta name="description" content="PlayNova brings you the best unblocked games online. Fast, free, and always accessible.">
+  <link rel="icon" type="image/png" href="logo.png">
+
+  <!-- Fonts + Tailwind -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            slate: { 950: '#020617' }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- APP LOGIC -->
+  <script>
+    const ZONES_JSON_URL = "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json";
+    const COVERS_BASE_URL = "https://cdn.jsdelivr.net/gh/gn-math/covers@main";
+    const HTML_BASE_URL = "https://cdn.jsdelivr.net/gh/gn-math/html@main";
+
+    function gameApp() {
+      return {
+        /* CORE STATE */
+        isLoading: true,
+        allGames: [],
+        popularGames: [],
+        featuredGames: [],
+        visibleGames: [],
+        currentGame: null,
+
+        /* UI STATE */
+        searchQuery: "",
+        searchResults: [],
+        selectedCategory: "All",
+        isGameModalOpen: false,
+        isGameLoading: false,
+        isDarkMode: true,
+        isInfoModalOpen: false,
+        infoModalTitle: "",
+        infoModalContent: "",
+
+        /* STATIC POPUPS */
+        popupContents: {
+          dmca: `
+            <p>If you believe your copyrighted content is being used improperly,
+            contact us at <strong class='text-blue-500 dark:text-blue-400'>dmca@playnova.gg</strong>.</p>
+          `,
+          contact: `
+            <p>Need help? Reach out anytime.</p>
+            <p class="mt-2"><strong>Email:</strong>
+            <a href="mailto:support@playnova.gg" class="text-blue-500 hover:underline dark:text-blue-400">
+            support@playnova.gg</a></p>
+          `,
+          privacy: `
+            <div class="prose prose-sm max-w-none dark:prose-invert text-slate-600 dark:text-slate-300">
+              <h2>PRIVACY POLICY</h2>
+              <p>Last updated January 2026</p>
+              <p>PlayNova respects your privacy and is committed to protecting your data.</p>
+            </div>
+          `
+        },
+
+        /* INIT */
+        init() {
+          const storedTheme = localStorage.getItem("darkMode");
+          this.isDarkMode = storedTheme === null ? true : storedTheme === "true";
+          document.documentElement.classList.toggle("dark", this.isDarkMode);
+
+          this.$watch("isDarkMode", val => {
+            localStorage.setItem("darkMode", val);
+            document.documentElement.classList.toggle("dark", val);
+          });
+
+          this.$watch("isLoading", loading => {
+            if (!loading) {
+              const loader = document.getElementById("page-loader");
+              if (loader) {
+                loader.style.opacity = "0";
+                setTimeout(() => loader.remove(), 300);
+              }
+            }
+          });
+
+          const yearEl = document.getElementById("year");
+          if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+          this.fetchGames();
+        },
+
+        /* CATEGORY DETECTION */
+        categorizeGame(name) {
+          const n = name.toLowerCase();
+          if (n.includes("x3m") || n.includes("fight") || n.includes("battle") || n.includes("arena")) return "Action";
+          if (n.includes("dash") || n.includes("run") || n.includes("jump") || n.includes("slope") || n.includes("ball")) return "Arcade";
+          if (n.includes("kart") || n.includes("drift") || n.includes("drive") || n.includes("rider") || n.includes("car")) return "Racing";
+          if (n.includes("fireboy") || n.includes("watergirl") || n.includes("maze") || n.includes("puzzle") || n.includes("brain")) return "Puzzle";
+          if (n.includes(".io") || n.includes("arena") || n.includes("duel") || n.includes("online")) return "Multiplayer";
+          return "Other";
+        },
+
+        /* FETCH ALL GAMES */
+        async fetchGames() {
+          this.isLoading = true;
+          try {
+            const response = await fetch(`${ZONES_JSON_URL}?t=${Date.now()}`);
+            if (!response.ok) throw new Error("Network error");
+
+            const allZones = await response.json();
+            const validGames = allZones.filter(g => String(g.id) !== "-1");
+
+            this.allGames = validGames.map(g => ({
+              ...g,
+              category: this.categorizeGame(g.name)
+            })).sort((a, b) => a.name.localeCompare(b.name));
+
+            const popularNames = [
+              "Slope", "Drift Boss", "Moto X3M", "Run 3", "1v1.LoL",
+              "Smash Karts", "OvO", "Fireboy and Watergirl 2",
+              "Geometry Dash Lite", "Basketball Stars", "Tunnel Rush",
+              "Snow Rider 3D", "Cookie Clicker", "Crossy Road",
+              "Flappy Bird", "Doodle Jump", "Stickman Hook", "Subway Surfers"
+            ];
+
+            this.popularGames = this.allGames.filter(g => popularNames.includes(g.name));
+            this.featuredGames = this.allGames.slice(0, 12);
+
+            /* Default view = All */
+            this.visibleGames = this.allGames;
+          } catch (err) {
+            console.error("Failed to load games:", err);
+          } finally {
+            setTimeout(() => { this.isLoading = false; }, 400);
+          }
+        },
+
+        /* SEARCH */
+        filterGames() {
+          if (this.searchQuery.trim() === "") {
+            this.searchResults = [];
+            return;
+          }
+          const q = this.searchQuery.toLowerCase();
+          this.searchResults = this.allGames.filter(game =>
+            game.name.toLowerCase().includes(q)
+          );
+        },
+
+        /* CATEGORY FILTER */
+        filterByCategory(cat) {
+          this.selectedCategory = cat;
+
+          if (cat === "All") {
+            this.visibleGames = this.allGames;
+            return;
+          }
+          if (cat === "Popular") {
+            this.visibleGames = this.popularGames.length ? this.popularGames : this.allGames.slice(0, 48);
+            return;
+          }
+          if (cat === "New") {
+            this.visibleGames = this.allGames.slice(-60);
+            return;
+          }
+          this.visibleGames = this.allGames.filter(g => g.category === cat);
+        },
+
+        /* OPEN GAME */
+        openGame(game) {
+          this.launchGame(game);
+        },
+
+        /* LAUNCH GAME */
+        async launchGame(game) {
+          if (!game || !game.url) {
+            alert("This game is not available yet.");
+            return;
+          }
+
+          this.currentGame = game;
+          this.isGameModalOpen = true;
+          this.isGameLoading = true;
+          document.body.classList.add("overflow-hidden");
+
+          const iframe = document.getElementById("game-iframe");
+          if (!iframe) return;
+
+          iframe.src = "about:blank";
+          await this.$nextTick();
+
+          iframe.onload = () => {
+            this.isGameLoading = false;
+          };
+
+          const url = game.url.replace("{HTML_URL}", HTML_BASE_URL);
+
+          try {
+            const response = await fetch(`${url}?t=${Date.now()}`);
+            if (!response.ok) throw new Error("Failed to fetch game HTML");
+
+            const html = await response.text();
+            const doc = iframe.contentDocument;
+
+            doc.open();
+            doc.write(html);
+            doc.close();
+          } catch (err) {
+            console.error("Failed to load game:", err);
+            alert("Failed to load game. Please try again.");
+            this.closeGameModal();
+          }
+        },
+
+        closeGameModal() {
+          this.isGameModalOpen = false;
+          document.body.classList.remove("overflow-hidden");
+
+          setTimeout(() => {
+            const iframe = document.getElementById("game-iframe");
+            if (iframe) iframe.src = "about:blank";
+            this.currentGame = null;
+          }, 200);
+        },
+
+        fullscreenGame() {
+          const iframe = document.getElementById("game-iframe");
+          if (!iframe) return;
+
+          const fs = iframe.requestFullscreen ||
+                     iframe.webkitRequestFullscreen ||
+                     iframe.mozRequestFullScreen ||
+                     iframe.msRequestFullscreen;
+
+          if (fs) fs.call(iframe);
+        },
+
+        async openInNewTab() {
+          if (!this.currentGame) return;
+
+          const newWindow = window.open("about:blank", "_blank");
+          if (!newWindow) {
+            alert("Please allow popups for this feature.");
+            return;
+          }
+
+          const url = this.currentGame.url.replace("{HTML_URL}", HTML_BASE_URL);
+
+          try {
+            newWindow.document.title = "Loading...";
+            const response = await fetch(`${url}?t=${Date.now()}`);
+            if (!response.ok) throw new Error("Failed to fetch game HTML");
+
+            const html = await response.text();
+
+            newWindow.document.open();
+            newWindow.document.write(html);
+            newWindow.document.close();
+            newWindow.document.title = this.currentGame.name;
+          } catch (err) {
+            newWindow.close();
+            alert("Failed to open game in new tab.");
+          }
+        },
+
+        toggleTheme() {
+          this.isDarkMode = !this.isDarkMode;
+          document.documentElement.classList.toggle("dark", this.isDarkMode);
+        },
+
+        openInfoModal(title, content) {
+          this.infoModalTitle = title;
+          this.infoModalContent = content;
+          this.isInfoModalOpen = true;
+        },
+
+        closeInfoModal() {
+          this.isInfoModalOpen = false;
+        }
+      }
+    }
+  </script>
+
+  <!-- AlpineJS -->
+  <script defer src="https://unpkg.com/alpinejs@3.13.10/dist/cdn.min.js"></script>
+
+  <!-- STYLES -->
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+
+    .section-title {
+      background: linear-gradient(45deg, #3b82f6, #22c55e);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .dark .section-title {
+      background: linear-gradient(45deg, #60a5fa, #22c55e);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header {
+      backdrop-filter: blur(14px);
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .dark header {
+      background: rgba(2, 6, 23, 0.78);
+    }
+
+    .game-card-inner {
+      border-radius: 1rem;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+      transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+
+    .game-card:hover .game-card-inner {
+      transform: scale(1.03);
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.45);
+      border-color: rgba(59, 130, 246, 0.9);
+    }
+
+    .modal-panel {
+      border-radius: 1.25rem;
+      box-shadow: 0 22px 60px rgba(15, 23, 42, 0.7);
+    }
+
+    .control-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background: radial-gradient(circle at top left, #e5f0ff, #e2e8f0);
+      color: #1e293b;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid rgba(148, 163, 184, 0.7);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.25);
+      transition: all 0.18s ease;
+    }
+
+    .control-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.4);
+      background: radial-gradient(circle at top left, #dbeafe, #e2e8f0);
+    }
+
+    .dark .control-button {
+      background: radial-gradient(circle at top left, #0f172a, #020617);
+      color: #e5e7eb;
+      border-color: #334155;
+    }
+
+    .dark .control-button:hover {
+      background: radial-gradient(circle at top left, #1e293b, #020617);
+    }
+
+    .footer-link {
+      font-weight: 600;
+      color: #64748b;
+      transition: color 0.18s;
+    }
+
+    .footer-link:hover {
+      color: #2563eb;
+    }
+
+    .dark .footer-link {
+      color: #94a3b8;
+    }
+
+    .dark .footer-link:hover {
+      color: #60a5fa;
+    }
+
+    .category-pill {
+      border-radius: 999px;
+      padding: 0.4rem 0.9rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: all 0.18s ease;
+      white-space: nowrap;
+    }
+
+    .category-pill-active {
+      background: linear-gradient(135deg, #2563eb, #22c55e);
+      color: white;
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.55);
+    }
+
+    .category-pill-inactive {
+      background: rgba(15, 23, 42, 0.03);
+      color: #475569;
+      border-color: rgba(148, 163, 184, 0.6);
+    }
+
+    .dark .category-pill-inactive {
+      background: rgba(15, 23, 42, 0.7);
+      color: #e2e8f0;
+      border-color: rgba(51, 65, 85, 0.9);
+    }
+
+    .category-pill-inactive:hover {
+      border-color: #2563eb;
+      color: #1d4ed8;
+    }
+
+    .dark .category-pill-inactive:hover {
+      border-color: #60a5fa;
+      color: #bfdbfe;
+    }
+
+    body {
+      background:
+        radial-gradient(circle at top, rgba(37, 99, 235, 0.22), transparent 55%),
+        radial-gradient(circle at bottom, rgba(16, 185, 129, 0.18), transparent 55%),
+        linear-gradient(to bottom, #f8fafc, #e2e8f0);
+    }
+
+    .dark body {
+      background:
+        radial-gradient(circle at top, rgba(37, 99, 235, 0.35), transparent 55%),
+        radial-gradient(circle at bottom, rgba(16, 185, 129, 0.25), transparent 55%),
+        linear-gradient(to bottom, #020617, #020617);
+    }
+  </style>
+</head>
+
+<body class="text-slate-800 dark:text-slate-200 antialiased">
+  <!-- LOADER -->
+  <div id="page-loader" class="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-50 dark:bg-slate-950 transition-opacity">
+    <svg class="h-12 w-12 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+    </svg>
+  </div>
+
+  <!-- HEADER -->
+  <header x-show="!isLoading" x-cloak class="sticky top-0 z-50 border-b border-slate-200/70 dark:border-slate-800/70">
+    <nav class="container mx-auto px-4 sm:px-6 py-3 flex justify-between items-center gap-4">
+      <a href="/" class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-blue-500/40">
+          <span class="text-white font-extrabold text-lg">P</span>
+        </div>
+        <div class="leading-tight">
+          <span class="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50">PlayNova</span>
+          <span class="text-[11px] uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 hidden sm:block">
+            Unblocked • Instant Play
+          </span>
+        </div>
+      </a>
+
+      <div class="flex items-center gap-3 w-full max-w-md">
+        <div class="relative w-full">
+          <input
+            type="search"
+            x-model="searchQuery"
+            @input.debounce.300ms="filterGames"
+            placeholder="Search 600+ games..."
+            class="w-full pl-11 pr-4 py-2.5 bg-white/90 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-700 rounded-full shadow-sm focus:ring-2 focus:ring-blue-500 text-sm"
+          >
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="7"></circle>
+            <line x1="16.65" y1="16.65" x2="21" y2="21"></line>
+          </svg>
+        </div>
+
+        <button @click="toggleTheme()" class="p-2 bg-slate-100/80 dark:bg-slate-900/80 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition shadow-sm">
+          <svg x-show="!isDarkMode" class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+          </svg>
+          <svg x-show="isDarkMode" x-cloak class="w-5 h-5 text-slate-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- MAIN -->
+  <main x-show="!isLoading" x-cloak class="container mx-auto px-4 sm:px-6 py-8">
+    <!-- HERO -->
+    <section class="text-center mb-8 sm:mb-10">
+      <h1 class="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50 mb-3">
+        Play the Best Unblocked Games
+      </h1>
+      <p class="text-slate-500 dark:text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
+        600+ hand‑picked games. Fast, free, and always unblocked — just click and play.
+      </p>
+    </section>
+
+    <!-- CATEGORY BAR -->
+    <section class="flex gap-2 sm:gap-3 overflow-x-auto justify-center mt-2 pb-2 mb-6">
+      <button
+        @click="filterByCategory('All')"
+        :class="selectedCategory === 'All' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>All</span>
+      </button>
+      <button
+        @click="filterByCategory('Popular')"
+        :class="selectedCategory === 'Popular' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>Popular</span>
+      </button>
+      <button
+        @click="filterByCategory('New')"
+        :class="selectedCategory === 'New' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>New</span>
+      </button>
+      <button
+        @click="filterByCategory('Action')"
+        :class="selectedCategory === 'Action' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>Action</span>
+      </button>
+      <button
+        @click="filterByCategory('Arcade')"
+        :class="selectedCategory === 'Arcade' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>Arcade</span>
+      </button>
+      <button
+        @click="filterByCategory('Racing')"
+        :class="selectedCategory === 'Racing' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>Racing</span>
+      </button>
+      <button
+        @click="filterByCategory('Puzzle')"
+        :class="selectedCategory === 'Puzzle' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>Puzzle</span>
+      </button>
+      <button
+        @click="filterByCategory('Multiplayer')"
+        :class="selectedCategory === 'Multiplayer' ? 'category-pill category-pill-active' : 'category-pill category-pill-inactive'">
+        <span>Multiplayer</span>
+      </button>
+    </section>
+
+    <!-- SEARCH RESULTS -->
+    <div x-show="searchQuery.length > 0" x-cloak>
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-center mb-6 section-title tracking-tight">
+        Search Results
+      </h2>
+
+      <div
+        x-show="!isLoading && searchResults.length === 0"
+        class="text-center text-slate-500 dark:text-slate-400 py-10">
+        <p class="text-xl">
+          No games found for "<span x-text="searchQuery" class="font-bold"></span>".
+        </p>
+        <p class="text-sm mt-1">Try a different name or keyword.</p>
+      </div>
+
+      <div
+        x-show="searchResults.length > 0"
+        class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-5 sm:gap-6">
+        <template x-for="game in searchResults" :key="game.id">
+          <div
+            @click="openGame(game)"
+            @keydown.enter.prevent="openGame(game)"
+            role="button"
+            tabindex="0"
+            class="game-card group cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-xl">
+            <div class="relative aspect-[4/5] overflow-hidden game-card-inner bg-slate-200 dark:bg-slate-900">
+              <img
+                :src="game.cover.replace('{COVER_URL}', COVERS_BASE_URL)"
+                :alt="game.name"
+                loading="lazy"
+                class="absolute inset-0 w-full h-full object-cover">
+              <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+              <h3
+                class="absolute bottom-0 left-0 right-0 p-3 text-xs sm:text-sm font-semibold text-center text-white"
+                x-text="game.name">
+              </h3>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- CATEGORY VIEW -->
+    <div x-show="searchQuery.length === 0" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-2xl sm:text-3xl font-extrabold section-title tracking-tight">
+          <span
+            x-text="selectedCategory === 'All'
+              ? 'All Games'
+              : selectedCategory === 'Popular'
+              ? 'Popular Games'
+              : selectedCategory === 'New'
+              ? 'New & Fresh'
+              : selectedCategory + ' Games'">
+          </span>
+        </h2>
+        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+          Showing <span x-text="visibleGames.length"></span> games
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-5 sm:gap-6">
+        <template x-for="game in visibleGames" :key="game.id">
+          <div @click="openGame(game)" class="game-card group cursor-pointer rounded-xl">
+            <div class="relative aspect-[4/5] overflow-hidden game-card-inner bg-slate-200 dark:bg-slate-900">
+              <img
+                :src="game.cover.replace('{COVER_URL}', COVERS_BASE_URL)"
+                :alt="game.name"
+                loading="lazy"
+                class="absolute inset-0 w-full h-full object-cover">
+              <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+              <div
+                class="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-black/60 text-white uppercase tracking-wide"
+                x-text="game.category || 'Game'">
+              </div>
+              <h3
+                class="absolute bottom-0 left-0 right-0 p-3 text-xs sm:text-sm font-semibold text-center text-white"
+                x-text="game.name">
+              </h3>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </main>
+
+  <!-- GAME MODAL -->
+  <div
+    x-show="isGameModalOpen"
+    x-cloak
+    @keydown.escape.window="closeGameModal()"
+    class="fixed inset-0 z-[1500] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      @click.outside="closeGameModal()"
+      class="modal-panel w-full h-full max-w-6xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-col"
+      x-transition:enter="transition ease-out duration-300"
+      x-transition:enter-start="opacity-0 scale-95"
+      x-transition:enter-end="opacity-100 scale-100">
+
+      <header class="flex justify-between items-center p-3 border-b border-slate-200 dark:border-slate-800">
+        <h2
+          x-text="currentGame?.name || 'Loading...'"
+          class="text-lg font-bold text-slate-700 dark:text-slate-200 truncate">
+        </h2>
+        <div class="flex items-center gap-2">
+          <button @click="fullscreenGame()" class="control-button">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M8 3H5a2 2 0 00-2 2v3m0 8v3a2 2 0 002 2h3m8-18h3a2 2 0 012 2v3m0 8v3a2 2 0 01-2 2h-3" />
+            </svg>
+            <span class="hidden sm:inline">Fullscreen</span>
+          </button>
+          <button @click="openInNewTab()" class="control-button">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M14 3h7v7m0-7L10 14" />
+              <path d="M5 5v14h14" />
+            </svg>
+            <span class="hidden sm:inline">New Tab</span>
+          </button>
+          <button
+            @click="closeGameModal()"
+            class="text-2xl text-slate-500 hover:text-blue-600 dark:hover:text-blue-400">
+            ×
+          </button>
+        </div>
+      </header>
+
+      <div class="flex-grow p-1 bg-black relative rounded-b-xl">
+        <div
+          x-show="isGameLoading"
+          class="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
+          <svg class="h-12 w-12 text-white animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          </svg>
+        </div>
+        <iframe
+          id="game-iframe"
+          src="about:blank"
+          allow="fullscreen; autoplay; game; gyroscope; accelerometer; clipboard-write"
+          class="w-full h-full border-0 rounded-b-xl transition-opacity duration-300"
+          :class="{'opacity-0': isGameLoading}">
+        </iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- INFO MODAL -->
+  <div
+    x-show="isInfoModalOpen"
+    x-cloak
+    @keydown.escape.window="closeInfoModal()"
+    class="fixed inset-0 z-[1600] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      @click.outside="closeInfoModal()"
+      class="modal-panel w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-6"
+      x-transition:enter="transition ease-out duration-300"
+      x-transition:enter-start="opacity-0 scale-95"
+      x-transition:enter-end="opacity-100 scale-100">
+      <header class="flex justify-between items-center mb-4">
+        <h2 x-text="infoModalTitle" class="text-xl font-bold text-slate-800 dark:text-slate-100"></h2>
+        <button
+          @click="closeInfoModal()"
+          class="text-2xl text-slate-500 hover:text-blue-600 dark:hover:text-blue-400">
+          ×
+        </button>
+      </header>
+      <div class="text-slate-600 dark:text-slate-300" x-html="infoModalContent"></div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer
+    x-show="!isLoading"
+    x-cloak
+    class="text-center py-10 mt-16 bg-white/40 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800">
+    <div class="container mx-auto px-6">
+      <div class="flex justify-center gap-6 my-6 flex-wrap">
+        <a href="https://discord.gg/v22HAVDjPc" target="_blank" class="footer-link">Discord</a>
+        <a href="#" @click.prevent="openInfoModal('DMCA', popupContents.dmca)" class="footer-link">DMCA</a>
+        <a href="#" @click.prevent="openInfoModal('Contact', popupContents.contact)" class="footer-link">Contact</a>
+        <a href="#" @click.prevent="openInfoModal('Privacy Policy', popupContents.privacy)" class="footer-link">Privacy Policy</a>
+      </div>
+      <p class="text-slate-400 dark:text-slate-500">
+        © <span id="year"></span> PlayNova. All rights reserved.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>
